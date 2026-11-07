@@ -91,14 +91,73 @@
 #pragma mark - Actions
 
 - (void)handlePaste {
-    UIPasteboard *pasteboard = UIPasteboard.generalPasteboard;
-    NSString *text = pasteboard.string;
+    NSString *text = [self pasteboardText];
     if (text.length == 0) {
-        [self showMessage:@"剪贴板里没有文本"];
+        [self showMessage:@"剪贴板里没有文本。可以手动输入，或复制 API Key 后再点一次。"];
         return;
     }
     self.textField.text = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     [self showMessage:@"已从剪贴板填入"];
+}
+
+/// UIPasteboard returns nil here even when the pasteboard holds text, so the
+/// system's own pasteboard cache is read as a fallback: jailbroken apps run
+/// without a sandbox and can reach it.
+- (NSString *)pasteboardText {
+    NSString *text = UIPasteboard.generalPasteboard.string;
+    if (text.length > 0) {
+        return text;
+    }
+
+    NSString *cacheRoot = @"/var/mobile/Library/Caches/com.apple.Pasteboard";
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSArray<NSString *> *entries = [manager contentsOfDirectoryAtPath:cacheRoot error:NULL];
+    if (entries.count == 0) {
+        return nil;
+    }
+
+    NSString *newestPath = nil;
+    NSDate *newestDate = nil;
+    for (NSString *name in entries) {
+        if ([name hasPrefix:@"."] || [name isEqualToString:@"Schema.plist"]) {
+            continue;
+        }
+        NSString *path = [cacheRoot stringByAppendingPathComponent:name];
+        BOOL isDirectory = NO;
+        if (![manager fileExistsAtPath:path isDirectory:&isDirectory] || !isDirectory) {
+            continue;
+        }
+        NSDate *date = [manager attributesOfItemAtPath:path error:NULL][NSFileModificationDate];
+        if (!newestDate || (date && [date compare:newestDate] == NSOrderedDescending)) {
+            newestDate = date;
+            newestPath = path;
+        }
+    }
+    if (newestPath.length == 0) {
+        return nil;
+    }
+
+    NSArray<NSString *> *files = [manager contentsOfDirectoryAtPath:newestPath error:NULL];
+    for (NSString *file in files) {
+        if ([file isEqualToString:@"Manifest.plist"]) {
+            continue;
+        }
+        NSString *filePath = [newestPath stringByAppendingPathComponent:file];
+        NSData *data = [NSData dataWithContentsOfFile:filePath];
+        if (data.length == 0) {
+            continue;
+        }
+        NSString *candidate = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if (candidate.length == 0) {
+            continue;
+        }
+        candidate = [candidate stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        // Other entries in that folder are binary metadata; only a key is useful here.
+        if ([candidate hasPrefix:@"sk-"] && candidate.length < 200) {
+            return candidate;
+        }
+    }
+    return nil;
 }
 
 - (void)handleClear {

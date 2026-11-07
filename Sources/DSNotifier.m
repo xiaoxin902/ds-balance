@@ -7,7 +7,12 @@ static BOOL DSNotificationsAuthorized = NO;
 
 + (BOOL)isUserAppInstallation {
     NSString *path = NSBundle.mainBundle.bundlePath;
-    return [path containsString:@"/var/containers/Bundle/Application/"];
+    // A jailbreak install lives under …/Bundle/Application/.procursus/Applications
+    // (a rootless bootstrap), so the container prefix alone says nothing.
+    if ([path containsString:@".procursus"] || [path containsString:@"/Applications/"]) {
+        return NO;
+    }
+    return [path containsString:@"/containers/Bundle/Application/"];
 }
 
 + (void)prepareNotifications {
