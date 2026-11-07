@@ -80,7 +80,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         case DSSettingsSectionAlerts:
             return 5;
         case DSSettingsSectionRefresh:
-            return 2;
+            return 4;
         case DSSettingsSectionAppearance:
             return 1;
         case DSSettingsSectionData:
@@ -116,7 +116,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         case DSSettingsSectionAlerts:
             return @"平台安装的应用拿不到系统通知，只会在打开或刷新时弹窗；以 IPA 侧载安装后，系统通知可用。";
         case DSSettingsSectionRefresh:
-            return @"刷新余额只是查询，不消耗 token，也不会扣费。\n\n若因频繁调用收到 HTTP 429：DeepSeek 官方文档未提供 Retry-After 头，建议指数退避——从几秒开始成倍增加等待时间，不要连续重试。";
+            return @"刷新余额只是查询，不消耗 token，也不会扣费。\n\n遇到 HTTP 429 时，DeepSeek 文档没有提供 Retry-After。开启指数退避后按首次间隔倍增重试（如 5 秒、10 秒、20 秒……），上限 5 分钟；算出的等待超过 5 分钟就按 5 分钟处理。";
         case DSSettingsSectionAbout:
             return @"余额来自 DeepSeek 官方 /user/balance 接口。开放平台没有公开的用量明细接口，记录页显示的是本机采样。";
     }
@@ -191,12 +191,26 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
                 cell.detailTextLabel.text = [self intervalText];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            } else {
+            } else if (indexPath.row == 1) {
                 cell.textLabel.text = @"启动时刷新";
                 UISwitch *toggle = [UISwitch new];
                 toggle.on = store.refreshOnLaunch;
                 [toggle addTarget:self action:@selector(refreshOnLaunchChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = toggle;
+            } else if (indexPath.row == 2) {
+                cell.textLabel.text = @"指数退避";
+                UISwitch *toggle = [UISwitch new];
+                toggle.on = store.retryBackoffEnabled;
+                [toggle addTarget:self action:@selector(retryBackoffChanged:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = toggle;
+            } else {
+                cell.textLabel.text = @"首次重试间隔";
+                cell.detailTextLabel.text = [self retryBaseText];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.selectionStyle = store.retryBackoffEnabled
+                    ? UITableViewCellSelectionStyleDefault
+                    : UITableViewCellSelectionStyleNone;
+                cell.textLabel.textColor = store.retryBackoffEnabled ? UIColor.labelColor : UIColor.secondaryLabelColor;
             }
             break;
         }
@@ -242,6 +256,8 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
     } else if (indexPath.section == DSSettingsSectionRefresh) {
         if (indexPath.row == 0) {
             [self presentIntervalPicker];
+        } else if (indexPath.row == 3 && DSStore.sharedStore.retryBackoffEnabled) {
+            [self presentRetryBasePicker];
         }
     } else if (indexPath.section == DSSettingsSectionData) {
         [self confirmClearRecords];
@@ -302,6 +318,42 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
     sheet.popoverPresentationController.sourceView = self.view;
     sheet.popoverPresentationController.sourceRect = self.view.bounds;
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (NSString *)retryBaseText {
+    NSInteger seconds = (NSInteger)lround(DSStore.sharedStore.retryBaseInterval);
+    return [NSString stringWithFormat:@"%ld 秒", (long)seconds];
+}
+
+- (void)presentRetryBasePicker {
+    NSArray<NSString *> *titles = @[ @"1 秒", @"5 秒", @"10 秒", @"30 秒", @"60 秒" ];
+    NSArray<NSNumber *> *values = @[ @1, @5, @10, @30, @60 ];
+    double current = DSStore.sharedStore.retryBaseInterval;
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"首次重试间隔"
+                                                                   message:@"之后每次翻倍，最长等 5 分钟。"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        double value = values[i].doubleValue;
+        NSString *title = titles[i];
+        if (fabs(current - value) < 0.5) {
+            title = [title stringByAppendingString:@"  ✓"];
+        }
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            (void)action;
+            DSStore.sharedStore.retryBaseInterval = value;
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = self.view.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)retryBackoffChanged:(UISwitch *)sender {
+    DSStore.sharedStore.retryBackoffEnabled = sender.isOn;
+    [self.tableView reloadData];
 }
 
 - (void)presentThresholdEditor {

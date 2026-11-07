@@ -53,6 +53,8 @@
 @property (nonatomic, assign) BOOL didAutoRefresh;
 @property (nonatomic, assign) NSTimeInterval lastRateLimitAlert;
 @property (nonatomic, strong) NSTimer *autoRefreshTimer;
+@property (nonatomic, strong) NSTimer *retryTimer;
+@property (nonatomic, assign) NSInteger rateLimitAttempt;
 @property (nonatomic, copy) NSArray<DSBalanceInfo *> *infos;
 @property (nonatomic, assign) BOOL available;
 
@@ -547,7 +549,7 @@
             BOOL rateLimited = [error.domain isEqualToString:DSApiErrorDomain] &&
                                error.code == DSApiErrorCodeRateLimited;
             if (rateLimited) {
-                [strongSelf presentRateLimitAlertIfNeeded];
+                [strongSelf handleRateLimit];
             } else if (userInteraction && strongSelf.infos.count == 0) {
                 [strongSelf presentError:error];
             }
@@ -557,6 +559,10 @@
         strongSelf.available = available;
         strongSelf.infos = infos;
         [strongSelf applyInfos];
+
+        strongSelf.rateLimitAttempt = 0;
+        [strongSelf.retryTimer invalidate];
+        strongSelf.retryTimer = nil;
 
         DSBalanceInfo *primary = [DSNotifier primaryInfoFromInfos:infos];
 
@@ -594,7 +600,28 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)presentRateLimitAlertIfNeeded {
+- (void)handleRateLimit {
+    NSTimeInterval delay = 0;
+    DSStore *store = DSStore.sharedStore;
+    if (store.retryBackoffEnabled) {
+        double raw = store.retryBaseInterval * pow(2.0, (double)self.rateLimitAttempt);
+        // Anything longer than five minutes is clamped to five minutes.
+        delay = MIN(raw, 300);
+        if (delay < 1) {
+            delay = 1;
+        }
+        self.rateLimitAttempt++;
+        [self.retryTimer invalidate];
+        __weak DSHomeViewController *weakSelf = self;
+        self.retryTimer = [NSTimer scheduledTimerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+            (void)timer;
+            [weakSelf refreshWithUserInteraction:NO];
+        }];
+    }
+    [self presentRateLimitAlertWithDelay:delay];
+}
+
+- (void)presentRateLimitAlertWithDelay:(NSTimeInterval)delay {
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     if (now - self.lastRateLimitAlert < 300) {
         return;
@@ -603,8 +630,19 @@
     if (self.presentedViewController != nil) {
         return;
     }
+
+    NSString *message;
+    if (delay >= 1) {
+        NSString *delayText = delay >= 60
+            ? [NSString stringWithFormat:@"%ld 分钟", (long)lround(delay / 60.0)]
+            : [NSString stringWithFormat:@"%ld 秒", (long)lround(delay)];
+        message = [NSString stringWithFormat:@"DeepSeek 返回 HTTP 429，刷新太快被限流，余额没有受影响。将在 %@ 后自动重试。", delayText];
+    } else {
+        message = @"DeepSeek 返回 HTTP 429，刷新太快被限流，余额没有受影响。请稍等再试，或把自动刷新间隔调长。";
+    }
+
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请求过于频繁"
-                                                                   message:@"DeepSeek 返回 HTTP 429，说明刷新太快被限流了。余额没有受影响。请稍等再试，或把自动刷新间隔调长。"
+                                                                   message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];

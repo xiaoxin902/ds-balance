@@ -30,6 +30,10 @@ typedef NS_ENUM(NSInteger, DSAppearanceMode) {
 /// Seconds between automatic refreshes; 0 means off. Background checks use it
 /// as the earliest interval, which the system does not promise to honour.
 @property (nonatomic, assign) NSTimeInterval refreshInterval;
+/// Retry after HTTP 429 with doubling waits, capped at five minutes.
+@property (nonatomic, assign) BOOL retryBackoffEnabled;
+/// First wait of that sequence, in seconds.
+@property (nonatomic, assign) NSTimeInterval retryBaseInterval;
 @property (nonatomic, assign) BOOL lowBalanceAlertEnabled;
 @property (nonatomic, assign) double lowBalanceThreshold;
 @property (nonatomic, assign) BOOL notificationsEnabled;

@@ -11,6 +11,8 @@ static NSString *const kFallbackAPIKey = @"DSFallbackAPIKey";
 static NSString *const kKeyAppearance = @"DSAppearanceMode";
 static NSString *const kKeyRefreshOnLaunch = @"DSRefreshOnLaunch";
 static NSString *const kKeyRefreshInterval = @"DSRefreshInterval";
+static NSString *const kKeyRetryBackoff = @"DSRetryBackoffEnabled";
+static NSString *const kKeyRetryBase = @"DSRetryBaseInterval";
 static NSString *const kKeyLowAlert = @"DSLowBalanceAlertEnabled";
 static NSString *const kKeyAlertOnOpen = @"DSAlertOnOpen";
 static NSString *const kKeyThreshold = @"DSLowBalanceThreshold";
@@ -38,6 +40,8 @@ static const NSUInteger kMaxSnapshots = 800;
             kKeyAppearance: @(DSAppearanceModeSystem),
             kKeyRefreshOnLaunch: @YES,
             kKeyRefreshInterval: @(300),
+            kKeyRetryBackoff: @YES,
+            kKeyRetryBase: @(5),
             kKeyLowAlert: @YES,
             kKeyAlertOnOpen: @YES,
             kKeyThreshold: @10.0,
@@ -82,6 +86,28 @@ static const NSUInteger kMaxSnapshots = 800;
     }
     [NSUserDefaults.standardUserDefaults setDouble:refreshInterval forKey:kKeyRefreshInterval];
     [NSNotificationCenter.defaultCenter postNotificationName:DSRefreshSettingsDidChangeNotification object:nil];
+}
+
+- (BOOL)retryBackoffEnabled {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kKeyRetryBackoff];
+}
+
+- (void)setRetryBackoffEnabled:(BOOL)enabled {
+    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:kKeyRetryBackoff];
+    [NSNotificationCenter.defaultCenter postNotificationName:DSRefreshSettingsDidChangeNotification object:nil];
+}
+
+- (NSTimeInterval)retryBaseInterval {
+    NSNumber *number = [NSUserDefaults.standardUserDefaults objectForKey:kKeyRetryBase];
+    double value = number ? number.doubleValue : 5;
+    return value >= 1 ? value : 5;
+}
+
+- (void)setRetryBaseInterval:(NSTimeInterval)retryBaseInterval {
+    if (retryBaseInterval < 1) {
+        retryBaseInterval = 1;
+    }
+    [NSUserDefaults.standardUserDefaults setDouble:retryBaseInterval forKey:kKeyRetryBase];
 }
 
 - (BOOL)lowBalanceAlertEnabled {
