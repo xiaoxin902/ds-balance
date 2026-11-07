@@ -2,11 +2,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// A small filled line chart, drawn with Core Graphics: no third-party code.
+/// A filled line chart with axis labels, drawn with Core Graphics.
 @interface DSLineChartView : UIView
 
-/// Oldest first.
+/// Oldest first. values and timestamps must line up.
 @property (nonatomic, copy) NSArray<NSNumber *> *values;
+@property (nonatomic, copy) NSArray<NSNumber *> *timestamps;
+@property (nonatomic, copy) NSString *currencySymbol;
 @property (nonatomic, strong) UIColor *lineColor;
 
 @end

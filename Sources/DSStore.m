@@ -4,11 +4,13 @@
 NSString *const DSDataDidChangeNotification = @"DSDataDidChangeNotification";
 NSString *const DSAppearanceDidChangeNotification = @"DSAppearanceDidChangeNotification";
 NSString *const DSRefreshRequestedNotification = @"DSRefreshRequestedNotification";
+NSString *const DSRefreshSettingsDidChangeNotification = @"DSRefreshSettingsDidChangeNotification";
 
 static NSString *const kKeyAPIKey = @"DSApiKey";
 static NSString *const kFallbackAPIKey = @"DSFallbackAPIKey";
 static NSString *const kKeyAppearance = @"DSAppearanceMode";
 static NSString *const kKeyRefreshOnLaunch = @"DSRefreshOnLaunch";
+static NSString *const kKeyRefreshInterval = @"DSRefreshInterval";
 static NSString *const kKeyLowAlert = @"DSLowBalanceAlertEnabled";
 static NSString *const kKeyAlertOnOpen = @"DSAlertOnOpen";
 static NSString *const kKeyThreshold = @"DSLowBalanceThreshold";
@@ -35,6 +37,7 @@ static const NSUInteger kMaxSnapshots = 800;
         [NSUserDefaults.standardUserDefaults registerDefaults:@{
             kKeyAppearance: @(DSAppearanceModeSystem),
             kKeyRefreshOnLaunch: @YES,
+            kKeyRefreshInterval: @(300),
             kKeyLowAlert: @YES,
             kKeyAlertOnOpen: @YES,
             kKeyThreshold: @10.0,
@@ -66,6 +69,19 @@ static const NSUInteger kMaxSnapshots = 800;
 
 - (void)setRefreshOnLaunch:(BOOL)refreshOnLaunch {
     [NSUserDefaults.standardUserDefaults setBool:refreshOnLaunch forKey:kKeyRefreshOnLaunch];
+}
+
+- (NSTimeInterval)refreshInterval {
+    NSNumber *number = [NSUserDefaults.standardUserDefaults objectForKey:kKeyRefreshInterval];
+    return number ? number.doubleValue : 300;
+}
+
+- (void)setRefreshInterval:(NSTimeInterval)refreshInterval {
+    if (refreshInterval < 0) {
+        refreshInterval = 0;
+    }
+    [NSUserDefaults.standardUserDefaults setDouble:refreshInterval forKey:kKeyRefreshInterval];
+    [NSNotificationCenter.defaultCenter postNotificationName:DSRefreshSettingsDidChangeNotification object:nil];
 }
 
 - (BOOL)lowBalanceAlertEnabled {

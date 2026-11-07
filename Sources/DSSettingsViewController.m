@@ -9,6 +9,7 @@
 typedef NS_ENUM(NSInteger, DSSettingsSection) {
     DSSettingsSectionKey = 0,
     DSSettingsSectionAlerts,
+    DSSettingsSectionRefresh,
     DSSettingsSectionAppearance,
     DSSettingsSectionData,
     DSSettingsSectionAbout,
@@ -78,8 +79,10 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
             return 1;
         case DSSettingsSectionAlerts:
             return 5;
-        case DSSettingsSectionAppearance:
+        case DSSettingsSectionRefresh:
             return 2;
+        case DSSettingsSectionAppearance:
+            return 1;
         case DSSettingsSectionData:
             return 1;
         case DSSettingsSectionAbout:
@@ -94,6 +97,8 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
             return @"DeepSeek API";
         case DSSettingsSectionAlerts:
             return @"余额提醒";
+        case DSSettingsSectionRefresh:
+            return @"刷新";
         case DSSettingsSectionAppearance:
             return @"显示";
         case DSSettingsSectionData:
@@ -110,6 +115,8 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
             return @"API Key 保存在本机的钥匙串里，只会发送给 api.deepseek.com。";
         case DSSettingsSectionAlerts:
             return @"平台安装的应用拿不到系统通知，只会在打开或刷新时弹窗；以 IPA 侧载安装后，系统通知可用。";
+        case DSSettingsSectionRefresh:
+            return @"前台按间隔自动刷新；后台检查由系统调度，不保证在设定的时刻运行。";
         case DSSettingsSectionAbout:
             return @"余额来自 DeepSeek 官方 /user/balance 接口。开放平台没有公开的用量明细接口，记录页显示的是本机采样。";
     }
@@ -178,13 +185,12 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
             }
             break;
         }
-        case DSSettingsSectionAppearance: {
+        case DSSettingsSectionRefresh: {
             if (indexPath.row == 0) {
-                cell.textLabel.text = @"外观";
-                UISegmentedControl *segmented = [[UISegmentedControl alloc] initWithItems:@[ @"跟随系统", @"浅色", @"深色" ]];
-                segmented.selectedSegmentIndex = store.appearanceMode;
-                [segmented addTarget:self action:@selector(appearanceChanged:) forControlEvents:UIControlEventValueChanged];
-                cell.accessoryView = segmented;
+                cell.textLabel.text = @"自动刷新间隔";
+                cell.detailTextLabel.text = [self intervalText];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.selectionStyle = UITableViewCellSelectionStyleDefault;
             } else {
                 cell.textLabel.text = @"启动时刷新";
                 UISwitch *toggle = [UISwitch new];
@@ -192,6 +198,14 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
                 [toggle addTarget:self action:@selector(refreshOnLaunchChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = toggle;
             }
+            break;
+        }
+        case DSSettingsSectionAppearance: {
+            cell.textLabel.text = @"外观";
+            UISegmentedControl *segmented = [[UISegmentedControl alloc] initWithItems:@[ @"跟随系统", @"浅色", @"深色" ]];
+            segmented.selectedSegmentIndex = store.appearanceMode;
+            [segmented addTarget:self action:@selector(appearanceChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = segmented;
             break;
         }
         case DSSettingsSectionData: {
@@ -225,6 +239,10 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         } else if (indexPath.row == 4) {
             [self sendTestNotification];
         }
+    } else if (indexPath.section == DSSettingsSectionRefresh) {
+        if (indexPath.row == 0) {
+            [self presentIntervalPicker];
+        }
     } else if (indexPath.section == DSSettingsSectionData) {
         [self confirmClearRecords];
     }
@@ -246,6 +264,44 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (NSString *)intervalText {
+    NSTimeInterval interval = DSStore.sharedStore.refreshInterval;
+    if (interval <= 0) {
+        return @"关闭";
+    }
+    NSInteger minutes = (NSInteger)lround(interval / 60.0);
+    if (minutes >= 60 && minutes % 60 == 0) {
+        return [NSString stringWithFormat:@"%ld 小时", (long)(minutes / 60)];
+    }
+    return [NSString stringWithFormat:@"%ld 分钟", (long)minutes];
+}
+
+- (void)presentIntervalPicker {
+    NSArray<NSString *> *titles = @[ @"关闭", @"1 分钟", @"5 分钟", @"15 分钟", @"30 分钟", @"1 小时" ];
+    NSArray<NSNumber *> *values = @[ @0, @60, @300, @900, @1800, @3600 ];
+    NSTimeInterval current = DSStore.sharedStore.refreshInterval;
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"自动刷新间隔"
+                                                                   message:@"前台按这个间隔刷新；后台由系统调度，可能延后。"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        double value = values[i].doubleValue;
+        NSString *title = titles[i];
+        if (fabs(current - value) < 1) {
+            title = [title stringByAppendingString:@"  ✓"];
+        }
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            (void)action;
+            DSStore.sharedStore.refreshInterval = value;
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = self.view.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)presentThresholdEditor {

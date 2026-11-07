@@ -51,6 +51,7 @@
 
 @property (nonatomic, assign) BOOL loading;
 @property (nonatomic, assign) BOOL didAutoRefresh;
+@property (nonatomic, strong) NSTimer *autoRefreshTimer;
 @property (nonatomic, copy) NSArray<DSBalanceInfo *> *infos;
 @property (nonatomic, assign) BOOL available;
 
@@ -72,6 +73,12 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self reloadFromStoredState];
+    [self startAutoRefreshTimer];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self stopAutoRefreshTimer];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -311,6 +318,14 @@
                                           selector:@selector(handleDidBecomeActive)
                                               name:UIApplicationDidBecomeActiveNotification
                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(handleWillResignActive)
+                                              name:UIApplicationWillResignActiveNotification
+                                            object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(handleRefreshSettingsChange)
+                                              name:DSRefreshSettingsDidChangeNotification
+                                            object:nil];
 }
 
 - (void)handleStoreChange {
@@ -332,9 +347,51 @@
     if (self.presentedViewController != nil) {
         return;
     }
+    [self startAutoRefreshTimer];
     if (DSStore.sharedStore.apiKey.length > 0 && self.infos.count == 0) {
         [self refreshWithUserInteraction:NO];
     }
+}
+
+- (void)handleWillResignActive {
+    [self stopAutoRefreshTimer];
+}
+
+- (void)handleRefreshSettingsChange {
+    [self startAutoRefreshTimer];
+}
+
+#pragma mark - Automatic refresh
+
+- (void)startAutoRefreshTimer {
+    [self stopAutoRefreshTimer];
+    NSTimeInterval interval = DSStore.sharedStore.refreshInterval;
+    if (interval <= 0) {
+        return;
+    }
+    // A floor keeps a mistyped small value from hammering the API.
+    if (interval < 30) {
+        interval = 30;
+    }
+    __weak DSHomeViewController *weakSelf = self;
+    self.autoRefreshTimer = [NSTimer scheduledTimerWithTimeInterval:interval
+                                                           repeats:YES
+                                                             block:^(NSTimer *timer) {
+        (void)timer;
+        DSHomeViewController *strongSelf = weakSelf;
+        if (!strongSelf || strongSelf.loading) {
+            return;
+        }
+        if (DSStore.sharedStore.apiKey.length == 0) {
+            return;
+        }
+        [strongSelf refreshWithUserInteraction:NO];
+    }];
+}
+
+- (void)stopAutoRefreshTimer {
+    [self.autoRefreshTimer invalidate];
+    self.autoRefreshTimer = nil;
 }
 
 #pragma mark - State

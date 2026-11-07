@@ -4,6 +4,12 @@
 #import "DSLineChartView.h"
 #import "DSStore.h"
 
+typedef NS_ENUM(NSInteger, DSHistoryPeriod) {
+    DSHistoryPeriodHour = 0,
+    DSHistoryPeriodToday,
+    DSHistoryPeriodWeek,
+};
+
 static NSString *DSSymbolForCurrency(NSString *currency) {
     if ([currency caseInsensitiveCompare:@"CNY"] == NSOrderedSame) {
         return @"¥";
@@ -14,25 +20,292 @@ static NSString *DSSymbolForCurrency(NSString *currency) {
     return [currency stringByAppendingString:@" "];
 }
 
-static NSString *DSTimeText(NSTimeInterval timestamp) {
+static NSString *DSTimeText(NSTimeInterval timestamp, NSString *format) {
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp];
-    NSCalendar *calendar = NSCalendar.currentCalendar;
     NSDateFormatter *formatter = [NSDateFormatter new];
     formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_Hans_CN"];
-    BOOL sameYear = [calendar component:NSCalendarUnitYear fromDate:date] ==
-                    [calendar component:NSCalendarUnitYear fromDate:NSDate.date];
-    formatter.dateFormat = sameYear ? @"M月d日 HH:mm" : @"yyyy年M月d日 HH:mm";
+    formatter.dateFormat = format;
     return [formatter stringFromDate:date];
 }
+
+static NSString *DSDurationText(NSTimeInterval seconds) {
+    if (seconds >= 86400 * 30) {
+        return @"30 天以上";
+    }
+    NSInteger totalMinutes = (NSInteger)(seconds / 60.0);
+    NSInteger days = totalMinutes / (60 * 24);
+    NSInteger hours = (totalMinutes - days * 60 * 24) / 60;
+    NSInteger minutes = totalMinutes % 60;
+    if (days > 0) {
+        return [NSString stringWithFormat:@"%ld 天 %ld 小时", (long)days, (long)hours];
+    }
+    if (hours > 0) {
+        return [NSString stringWithFormat:@"%ld 小时 %ld 分", (long)hours, (long)minutes];
+    }
+    return [NSString stringWithFormat:@"%ld 分钟", (long)MAX(minutes, 1)];
+}
+
+@interface DSChartCell : UITableViewCell
+
+@property (nonatomic, copy) NSArray<NSDictionary *> *snapshots; // oldest first
+@property (nonatomic, assign) DSHistoryPeriod period;
+@property (nonatomic, copy) void (^onPeriodChanged)(DSHistoryPeriod period);
+
+- (void)refreshContent;
+
+@end
+
+@interface DSChartCell ()
+@property (nonatomic, strong) UILabel *titleLabel;
+@property (nonatomic, strong) UILabel *badgeLabel;
+@property (nonatomic, strong) UILabel *amountLabel;
+@property (nonatomic, strong) UILabel *captionLabel;
+@property (nonatomic, strong) UILabel *trendLabel;
+@property (nonatomic, strong) UISegmentedControl *segmented;
+@property (nonatomic, strong) DSLineChartView *chartView;
+@property (nonatomic, strong) UILabel *summaryLabel;
+@property (nonatomic, strong) UILabel *forecastLabel;
+@end
+
+@implementation DSChartCell
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        self.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+        [self buildSubviews];
+    }
+    return self;
+}
+
+- (void)buildSubviews {
+    self.titleLabel = [UILabel new];
+    self.titleLabel.text = @"余额趋势";
+    self.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
+
+    self.badgeLabel = [UILabel new];
+    self.badgeLabel.text = @"  本机记录  ";
+    self.badgeLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    self.badgeLabel.textColor = DSAppearance.brandColor;
+    self.badgeLabel.backgroundColor = [DSAppearance.brandColor colorWithAlphaComponent:0.10];
+    self.badgeLabel.layer.cornerRadius = 9;
+    self.badgeLabel.layer.cornerCurve = kCACornerCurveContinuous;
+    self.badgeLabel.clipsToBounds = YES;
+    self.badgeLabel.textAlignment = NSTextAlignmentCenter;
+    [self.badgeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.badgeLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    UIStackView *titleRow = [[UIStackView alloc] initWithArrangedSubviews:@[ self.titleLabel, [UIView new], self.badgeLabel ]];
+    titleRow.axis = UILayoutConstraintAxisHorizontal;
+    titleRow.alignment = UIStackViewAlignmentCenter;
+
+    self.amountLabel = [UILabel new];
+    self.amountLabel.text = @"—";
+    self.amountLabel.font = [UIFont monospacedDigitSystemFontOfSize:34 weight:UIFontWeightBold];
+    self.amountLabel.textColor = DSAppearance.brandColor;
+    self.amountLabel.adjustsFontSizeToFitWidth = YES;
+    self.amountLabel.minimumScaleFactor = 0.6;
+
+    self.captionLabel = [UILabel new];
+    self.captionLabel.text = @"最新余额";
+    self.captionLabel.font = [UIFont systemFontOfSize:12];
+    self.captionLabel.textColor = UIColor.secondaryLabelColor;
+
+    self.trendLabel = [UILabel new];
+    self.trendLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    self.trendLabel.textAlignment = NSTextAlignmentCenter;
+    self.trendLabel.layer.cornerRadius = 8;
+    self.trendLabel.layer.cornerCurve = kCACornerCurveContinuous;
+    self.trendLabel.clipsToBounds = YES;
+    self.trendLabel.text = @"  持平  ";
+    [self.trendLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.trendLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    UIStackView *captionRow = [[UIStackView alloc] initWithArrangedSubviews:@[ self.captionLabel, self.trendLabel, [UIView new] ]];
+    captionRow.axis = UILayoutConstraintAxisHorizontal;
+    captionRow.alignment = UIStackViewAlignmentCenter;
+    captionRow.spacing = 8;
+
+    self.segmented = [[UISegmentedControl alloc] initWithItems:@[ @"最近一小时", @"今天", @"近 7 天" ]];
+    self.segmented.selectedSegmentIndex = DSHistoryPeriodHour;
+    [self.segmented addTarget:self action:@selector(handlePeriodChanged) forControlEvents:UIControlEventValueChanged];
+
+    self.chartView = [[DSLineChartView alloc] initWithFrame:CGRectZero];
+    self.chartView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.chartView.heightAnchor constraintEqualToConstant:170].active = YES;
+
+    self.summaryLabel = [UILabel new];
+    self.summaryLabel.font = [UIFont systemFontOfSize:13];
+    self.summaryLabel.textColor = UIColor.secondaryLabelColor;
+    self.summaryLabel.numberOfLines = 0;
+
+    self.forecastLabel = [UILabel new];
+    self.forecastLabel.font = [UIFont systemFontOfSize:13];
+    self.forecastLabel.textColor = DSAppearance.brandColor;
+    self.forecastLabel.numberOfLines = 0;
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
+        titleRow, self.amountLabel, captionRow, self.segmented, self.chartView, self.summaryLabel, self.forecastLabel,
+    ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [stack setCustomSpacing:14 afterView:self.segmented];
+    [stack setCustomSpacing:12 afterView:self.chartView];
+    [self.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-16],
+    ]];
+}
+
+- (void)handlePeriodChanged {
+    self.period = (DSHistoryPeriod)self.segmented.selectedSegmentIndex;
+    [self refreshContent];
+    if (self.onPeriodChanged) {
+        self.onPeriodChanged(self.period);
+    }
+}
+
+- (NSArray<NSDictionary *> *)pointsForPeriod {
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSTimeInterval from = now - 3600;
+    if (self.period == DSHistoryPeriodToday) {
+        NSDate *start = [NSCalendar.currentCalendar startOfDayForDate:NSDate.date];
+        from = start.timeIntervalSince1970;
+    } else if (self.period == DSHistoryPeriodWeek) {
+        from = now - 7 * 24 * 3600;
+    }
+
+    NSMutableArray<NSDictionary *> *points = [NSMutableArray array];
+    for (NSDictionary *snapshot in self.snapshots) {
+        if ([snapshot[@"t"] doubleValue] >= from) {
+            [points addObject:snapshot];
+        }
+    }
+    return points;
+}
+
+- (NSString *)periodName {
+    switch (self.period) {
+        case DSHistoryPeriodToday:
+            return @"今天";
+        case DSHistoryPeriodWeek:
+            return @"近 7 天";
+        case DSHistoryPeriodHour:
+        default:
+            return @"最近 1 小时";
+    }
+}
+
+- (void)refreshContent {
+    self.segmented.selectedSegmentIndex = self.period;
+
+    NSDictionary *latestSnapshot = self.snapshots.lastObject;
+    if (!latestSnapshot) {
+        self.amountLabel.text = @"—";
+        self.summaryLabel.text = @"还没有采样数据，刷新几次就能看到趋势。";
+        self.forecastLabel.text = @"";
+        self.chartView.values = @[];
+        self.chartView.timestamps = @[];
+        self.trendLabel.text = @"  持平  ";
+        self.trendLabel.textColor = UIColor.secondaryLabelColor;
+        self.trendLabel.backgroundColor = UIColor.tertiarySystemFillColor;
+        return;
+    }
+
+    NSString *currency = latestSnapshot[@"c"];
+    if (![currency isKindOfClass:NSString.class]) {
+        currency = @"CNY";
+    }
+    NSString *symbol = DSSymbolForCurrency(currency);
+
+    NSArray<NSDictionary *> *points = [self pointsForPeriod];
+    NSMutableArray<NSNumber *> *values = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *times = [NSMutableArray array];
+    for (NSDictionary *point in points) {
+        [values addObject:@([point[@"b"] doubleValue])];
+        [times addObject:@([point[@"t"] doubleValue])];
+    }
+
+    double latest = values.count > 0 ? values.lastObject.doubleValue : [latestSnapshot[@"b"] doubleValue];
+    self.amountLabel.text = [NSString stringWithFormat:@"%@%@", symbol, DSMoneyText(latest)];
+
+    self.chartView.currencySymbol = symbol;
+    self.chartView.values = values;
+    self.chartView.timestamps = times;
+
+    // Consumption inside the period: every drop counts, top-ups are ignored.
+    double spent = 0;
+    for (NSUInteger i = 1; i < values.count; i++) {
+        double delta = values[i - 1].doubleValue - values[i].doubleValue;
+        if (delta > 0) {
+            spent += delta;
+        }
+    }
+
+    NSTimeInterval duration = 60;
+    if (times.count >= 2) {
+        duration = MAX(times.lastObject.doubleValue - times.firstObject.doubleValue, 60);
+    }
+
+    double change = 0;
+    if (values.count >= 2) {
+        change = values.lastObject.doubleValue - values.firstObject.doubleValue;
+    }
+
+    if (fabs(change) < 0.005) {
+        self.trendLabel.text = @"  持平  ";
+        self.trendLabel.textColor = UIColor.secondaryLabelColor;
+        self.trendLabel.backgroundColor = UIColor.tertiarySystemFillColor;
+    } else if (change < 0) {
+        self.trendLabel.text = @"  下降  ";
+        self.trendLabel.textColor = UIColor.systemRedColor;
+        self.trendLabel.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.10];
+    } else {
+        self.trendLabel.text = @"  上升  ";
+        self.trendLabel.textColor = UIColor.systemGreenColor;
+        self.trendLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
+    }
+
+    if (values.count < 2) {
+        self.summaryLabel.text = [NSString stringWithFormat:@"%@的数据还不够，再刷新几次就能看出消耗。", [self periodName]];
+        self.forecastLabel.text = @"";
+        return;
+    }
+
+    if (spent > 0.004) {
+        self.summaryLabel.text = [NSString stringWithFormat:@"%@余额减少 %@%@。", [self periodName], symbol, DSMoneyText(spent)];
+    } else {
+        self.summaryLabel.text = [NSString stringWithFormat:@"%@没有检测到消耗。", [self periodName]];
+    }
+
+    double rate = spent / (duration / 3600.0);
+    if (rate > 0.0001 && latest > 0) {
+        NSTimeInterval remaining = latest / rate * 3600.0;
+        self.forecastLabel.text = [NSString stringWithFormat:@"按这个速度（约 %@%@/小时）估算，预计还能用 %@。",
+                                   symbol, DSMoneyText(rate), DSDurationText(remaining)];
+    } else if (latest <= 0) {
+        self.forecastLabel.text = @"余额已经用完了。";
+    } else {
+        self.forecastLabel.text = @"这段时间没有消耗，暂时估算不出可用时长。";
+    }
+}
+
+@end
+
+#pragma mark -
 
 @interface DSHistoryViewController () <UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) DSLineChartView *chartView;
-@property (nonatomic, strong) UILabel *chartTitleLabel;
-@property (nonatomic, strong) UILabel *chartSubtitleLabel;
-@property (nonatomic, strong) UILabel *emptyLabel;
-@property (nonatomic, copy) NSArray<NSDictionary *> *rows;
+@property (nonatomic, strong) DSChartCell *chartCell;
+@property (nonatomic, copy) NSArray<NSDictionary *> *snapshots; // oldest first
+@property (nonatomic, copy) NSArray<NSDictionary *> *rows;      // newest first
+@property (nonatomic, assign) DSHistoryPeriod period;
 
 @end
 
@@ -40,15 +313,15 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"使用记录";
+    self.title = @"余额记录";
     self.navigationController.navigationBar.prefersLargeTitles = YES;
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.tableView.rowHeight = UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight = 64;
+    self.tableView.estimatedRowHeight = 60;
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.tableView];
     [NSLayoutConstraint activateConstraints:@[
@@ -63,9 +336,6 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
                                                                              target:self
                                                                              action:@selector(handleClearTap)];
 
-    [self buildHeader];
-    [self buildFooter];
-
     [NSNotificationCenter.defaultCenter addObserver:self
                                           selector:@selector(handleStoreChange)
                                               name:DSDataDidChangeNotification
@@ -77,79 +347,8 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
     [self reloadData];
 }
 
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    [self layoutHeaderIfNeeded];
-}
-
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
-}
-
-#pragma mark - Header and footer
-
-- (void)buildHeader {
-    CGFloat width = MAX(CGRectGetWidth(self.view.bounds), 320);
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 214)];
-
-    self.chartTitleLabel = [UILabel new];
-    self.chartTitleLabel.text = @"余额走势";
-    self.chartTitleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    self.chartTitleLabel.frame = CGRectMake(16, 4, width - 32, 22);
-    [header addSubview:self.chartTitleLabel];
-
-    self.chartSubtitleLabel = [UILabel new];
-    self.chartSubtitleLabel.text = @"由本机每次刷新时采样";
-    self.chartSubtitleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-    self.chartSubtitleLabel.textColor = UIColor.secondaryLabelColor;
-    self.chartSubtitleLabel.frame = CGRectMake(16, 26, width - 32, 16);
-    [header addSubview:self.chartSubtitleLabel];
-
-    self.chartView = [[DSLineChartView alloc] initWithFrame:CGRectMake(12, 46, width - 24, 150)];
-    [header addSubview:self.chartView];
-
-    self.tableView.tableHeaderView = header;
-}
-
-- (void)layoutHeaderIfNeeded {
-    UIView *header = self.tableView.tableHeaderView;
-    if (!header) {
-        return;
-    }
-    CGFloat width = CGRectGetWidth(self.tableView.bounds);
-    if (width < 1 || fabs(CGRectGetWidth(header.frame) - width) < 0.5) {
-        return;
-    }
-    header.frame = CGRectMake(0, 0, width, 214);
-    self.chartTitleLabel.frame = CGRectMake(16, 4, width - 32, 22);
-    self.chartSubtitleLabel.frame = CGRectMake(16, 26, width - 32, 16);
-    self.chartView.frame = CGRectMake(12, 46, width - 24, 150);
-    self.tableView.tableHeaderView = header;
-
-    UIView *footer = self.tableView.tableFooterView;
-    if (footer) {
-        footer.frame = CGRectMake(0, 0, width, 74);
-        for (UIView *subview in footer.subviews) {
-            if ([subview isKindOfClass:UILabel.class]) {
-                subview.frame = CGRectMake(28, 8, width - 56, 56);
-            }
-        }
-        self.tableView.tableFooterView = footer;
-    }
-}
-
-- (void)buildFooter {
-    UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(self.view.bounds), 74)];
-    UILabel *label = [UILabel new];
-    label.text = @"这里只是本机记录的余额变化。DeepSeek 开放平台未提供按次用量的公开接口，因此无法显示官方明细。";
-    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-    label.textColor = UIColor.tertiaryLabelColor;
-    label.numberOfLines = 0;
-    label.textAlignment = NSTextAlignmentCenter;
-    label.frame = CGRectMake(28, 8, CGRectGetWidth(footer.bounds) - 56, 56);
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [footer addSubview:label];
-    self.tableView.tableFooterView = footer;
 }
 
 #pragma mark - Data
@@ -159,39 +358,53 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
 }
 
 - (void)reloadData {
-    NSArray<NSDictionary *> *snapshots = DSStore.sharedStore.snapshots;
-    self.rows = [[snapshots reverseObjectEnumerator] allObjects];
-
-    NSMutableArray<NSNumber *> *values = [NSMutableArray array];
-    NSUInteger start = snapshots.count > 240 ? snapshots.count - 240 : 0;
-    for (NSUInteger i = start; i < snapshots.count; i++) {
-        [values addObject:@([snapshots[i][@"b"] doubleValue])];
-    }
-    self.chartView.values = values;
-
-    BOOL empty = self.rows.count == 0;
-    self.chartSubtitleLabel.text = empty ? @"还没有采样数据" : @"由本机每次刷新时采样";
-    self.tableView.separatorStyle = empty ? UITableViewCellSeparatorStyleNone : UITableViewCellSeparatorStyleSingleLine;
+    self.snapshots = DSStore.sharedStore.snapshots;
+    self.rows = [[self.snapshots reverseObjectEnumerator] allObjects];
     [self.tableView reloadData];
 }
 
 #pragma mark - UITableView
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return 2;
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.rows.count;
+    return section == 0 ? 1 : self.rows.count;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return section == 1 && self.rows.count > 0 ? @"刷新记录" : nil;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == 1) {
+        return @"每次刷新记录一次余额，消耗由相邻记录计算。DeepSeek 开放平台没有公开的用量明细接口，这里显示的是本机采样。";
+    }
+    return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    static NSString *identifier = @"history";
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
+    if (indexPath.section == 0) {
+        if (!self.chartCell) {
+            self.chartCell = [[DSChartCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"chart"];
+            __weak DSHistoryViewController *weakSelf = self;
+            self.chartCell.onPeriodChanged = ^(DSHistoryPeriod period) {
+                weakSelf.period = period;
+            };
+        }
+        self.chartCell.snapshots = self.snapshots;
+        self.chartCell.period = self.period;
+        [self.chartCell refreshContent];
+        return self.chartCell;
+    }
+
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"record"];
     if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"record"];
     }
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    cell.accessoryView = nil;
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.textLabel.textColor = UIColor.labelColor;
-    cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+    cell.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
 
     NSDictionary *row = self.rows[indexPath.row];
     NSString *currency = row[@"c"];
@@ -200,26 +413,14 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
     }
     double total = [row[@"b"] doubleValue];
 
-    cell.textLabel.text = [NSString stringWithFormat:@"余额 %@%@", DSSymbolForCurrency(currency), DSMoneyText(total)];
-    cell.textLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightSemibold];
-
-    NSString *detail = DSTimeText([row[@"t"] doubleValue]);
-    if ((NSUInteger)(indexPath.row + 1) < self.rows.count) {
-        NSDictionary *previous = self.rows[indexPath.row + 1];
-        double delta = total - [previous[@"b"] doubleValue];
-        if (fabs(delta) >= 0.005) {
-            detail = [NSString stringWithFormat:@"%@ · %@%@", detail, delta > 0 ? @"+" : @"−", DSMoneyText(fabs(delta))];
-        }
-    } else if (self.rows.count > 0) {
-        detail = [NSString stringWithFormat:@"%@ · 最早记录", detail];
-    }
-    cell.detailTextLabel.text = detail;
+    cell.textLabel.text = DSTimeText([row[@"t"] doubleValue], @"MM-dd HH:mm");
+    cell.textLabel.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
+    cell.textLabel.textColor = UIColor.secondaryLabelColor;
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@", DSSymbolForCurrency(currency), DSMoneyText(total)];
+    cell.detailTextLabel.font = [UIFont monospacedDigitSystemFontOfSize:16 weight:UIFontWeightMedium];
+    cell.detailTextLabel.textColor = UIColor.labelColor;
 
     return cell;
-}
-
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return nil;
 }
 
 #pragma mark - Actions
@@ -228,7 +429,7 @@ static NSString *DSTimeText(NSTimeInterval timestamp) {
     if (self.rows.count == 0) {
         return;
     }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清空使用记录"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清空余额记录"
                                                                    message:@"本机采样的余额历史会被删除，此操作无法撤销。"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     [alert addAction:[UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {

@@ -63,8 +63,17 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
 
 - (void)scheduleBackgroundRefresh {
     if (@available(iOS 13.0, *)) {
+        NSTimeInterval interval = DSStore.sharedStore.refreshInterval;
+        if (interval <= 0) {
+            [BGTaskScheduler.sharedScheduler cancelTaskRequestWithIdentifier:kRefreshTaskIdentifier];
+            return;
+        }
+        // The system will not run a refresh sooner than roughly a quarter hour.
+        if (interval < 15 * 60) {
+            interval = 15 * 60;
+        }
         BGAppRefreshTaskRequest *request = [[BGAppRefreshTaskRequest alloc] initWithIdentifier:kRefreshTaskIdentifier];
-        request.earliestBeginDate = [NSDate dateWithTimeIntervalSinceNow:20 * 60];
+        request.earliestBeginDate = [NSDate dateWithTimeIntervalSinceNow:interval];
         NSError *error = nil;
         [BGTaskScheduler.sharedScheduler submitTaskRequest:request error:&error];
         if (error) {

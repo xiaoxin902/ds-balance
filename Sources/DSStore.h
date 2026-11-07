@@ -7,6 +7,8 @@ extern NSString *const DSDataDidChangeNotification;
 extern NSString *const DSAppearanceDidChangeNotification;
 /// Posted after the API key changes, so the balance screen refreshes at once.
 extern NSString *const DSRefreshRequestedNotification;
+/// Posted when the refresh interval changes, so timers are rescheduled.
+extern NSString *const DSRefreshSettingsDidChangeNotification;
 
 typedef NS_ENUM(NSInteger, DSAppearanceMode) {
     DSAppearanceModeSystem = 0,
@@ -25,6 +27,9 @@ typedef NS_ENUM(NSInteger, DSAppearanceMode) {
 
 @property (nonatomic, assign) DSAppearanceMode appearanceMode;
 @property (nonatomic, assign) BOOL refreshOnLaunch;
+/// Seconds between automatic refreshes; 0 means off. Background checks use it
+/// as the earliest interval, which the system does not promise to honour.
+@property (nonatomic, assign) NSTimeInterval refreshInterval;
 @property (nonatomic, assign) BOOL lowBalanceAlertEnabled;
 @property (nonatomic, assign) double lowBalanceThreshold;
 @property (nonatomic, assign) BOOL notificationsEnabled;
