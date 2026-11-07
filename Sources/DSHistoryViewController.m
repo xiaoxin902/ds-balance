@@ -28,23 +28,6 @@ static NSString *DSTimeText(NSTimeInterval timestamp, NSString *format) {
     return [formatter stringFromDate:date];
 }
 
-static NSString *DSDurationText(NSTimeInterval seconds) {
-    if (seconds >= 86400 * 30) {
-        return @"30 天以上";
-    }
-    NSInteger totalMinutes = (NSInteger)(seconds / 60.0);
-    NSInteger days = totalMinutes / (60 * 24);
-    NSInteger hours = (totalMinutes - days * 60 * 24) / 60;
-    NSInteger minutes = totalMinutes % 60;
-    if (days > 0) {
-        return [NSString stringWithFormat:@"%ld 天 %ld 小时", (long)days, (long)hours];
-    }
-    if (hours > 0) {
-        return [NSString stringWithFormat:@"%ld 小时 %ld 分", (long)hours, (long)minutes];
-    }
-    return [NSString stringWithFormat:@"%ld 分钟", (long)MAX(minutes, 1)];
-}
-
 @interface DSChartCell : UITableViewCell
 
 @property (nonatomic, copy) NSArray<NSDictionary *> *snapshots; // oldest first
@@ -60,11 +43,9 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
 @property (nonatomic, strong) UILabel *badgeLabel;
 @property (nonatomic, strong) UILabel *amountLabel;
 @property (nonatomic, strong) UILabel *captionLabel;
-@property (nonatomic, strong) UILabel *trendLabel;
 @property (nonatomic, strong) UISegmentedControl *segmented;
 @property (nonatomic, strong) DSLineChartView *chartView;
 @property (nonatomic, strong) UILabel *summaryLabel;
-@property (nonatomic, strong) UILabel *forecastLabel;
 @end
 
 @implementation DSChartCell
@@ -112,17 +93,7 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
     self.captionLabel.font = [UIFont systemFontOfSize:12];
     self.captionLabel.textColor = UIColor.secondaryLabelColor;
 
-    self.trendLabel = [UILabel new];
-    self.trendLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
-    self.trendLabel.textAlignment = NSTextAlignmentCenter;
-    self.trendLabel.layer.cornerRadius = 8;
-    self.trendLabel.layer.cornerCurve = kCACornerCurveContinuous;
-    self.trendLabel.clipsToBounds = YES;
-    self.trendLabel.text = @"  持平  ";
-    [self.trendLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [self.trendLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-
-    UIStackView *captionRow = [[UIStackView alloc] initWithArrangedSubviews:@[ self.captionLabel, self.trendLabel, [UIView new] ]];
+    UIStackView *captionRow = [[UIStackView alloc] initWithArrangedSubviews:@[ self.captionLabel, [UIView new] ]];
     captionRow.axis = UILayoutConstraintAxisHorizontal;
     captionRow.alignment = UIStackViewAlignmentCenter;
     captionRow.spacing = 8;
@@ -140,13 +111,8 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
     self.summaryLabel.textColor = UIColor.secondaryLabelColor;
     self.summaryLabel.numberOfLines = 0;
 
-    self.forecastLabel = [UILabel new];
-    self.forecastLabel.font = [UIFont systemFontOfSize:13];
-    self.forecastLabel.textColor = DSAppearance.brandColor;
-    self.forecastLabel.numberOfLines = 0;
-
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleRow, self.amountLabel, captionRow, self.segmented, self.chartView, self.summaryLabel, self.forecastLabel,
+        titleRow, self.amountLabel, captionRow, self.segmented, self.chartView, self.summaryLabel,
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 10;
@@ -208,12 +174,8 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
     if (!latestSnapshot) {
         self.amountLabel.text = @"—";
         self.summaryLabel.text = @"还没有采样数据，刷新几次就能看到趋势。";
-        self.forecastLabel.text = @"";
         self.chartView.values = @[];
         self.chartView.timestamps = @[];
-        self.trendLabel.text = @"  持平  ";
-        self.trendLabel.textColor = UIColor.secondaryLabelColor;
-        self.trendLabel.backgroundColor = UIColor.tertiarySystemFillColor;
         return;
     }
 
@@ -251,29 +213,10 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
     if (times.count >= 2) {
         duration = MAX(times.lastObject.doubleValue - times.firstObject.doubleValue, 60);
     }
-
-    double change = 0;
-    if (values.count >= 2) {
-        change = values.lastObject.doubleValue - values.firstObject.doubleValue;
-    }
-
-    if (fabs(change) < 0.005) {
-        self.trendLabel.text = @"  持平  ";
-        self.trendLabel.textColor = UIColor.secondaryLabelColor;
-        self.trendLabel.backgroundColor = UIColor.tertiarySystemFillColor;
-    } else if (change < 0) {
-        self.trendLabel.text = @"  下降  ";
-        self.trendLabel.textColor = UIColor.systemRedColor;
-        self.trendLabel.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.10];
-    } else {
-        self.trendLabel.text = @"  上升  ";
-        self.trendLabel.textColor = UIColor.systemGreenColor;
-        self.trendLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
-    }
+    (void)duration;
 
     if (values.count < 2) {
         self.summaryLabel.text = [NSString stringWithFormat:@"%@的数据还不够，再刷新几次就能看出消耗。", [self periodName]];
-        self.forecastLabel.text = @"";
         return;
     }
 
@@ -281,17 +224,6 @@ static NSString *DSDurationText(NSTimeInterval seconds) {
         self.summaryLabel.text = [NSString stringWithFormat:@"%@余额减少 %@%@。", [self periodName], symbol, DSMoneyText(spent)];
     } else {
         self.summaryLabel.text = [NSString stringWithFormat:@"%@没有检测到消耗。", [self periodName]];
-    }
-
-    double rate = spent / (duration / 3600.0);
-    if (rate > 0.0001 && latest > 0) {
-        NSTimeInterval remaining = latest / rate * 3600.0;
-        self.forecastLabel.text = [NSString stringWithFormat:@"按这个速度（约 %@%@/小时）估算，预计还能用 %@。",
-                                   symbol, DSMoneyText(rate), DSDurationText(remaining)];
-    } else if (latest <= 0) {
-        self.forecastLabel.text = @"余额已经用完了。";
-    } else {
-        self.forecastLabel.text = @"这段时间没有消耗，暂时估算不出可用时长。";
     }
 }
 
