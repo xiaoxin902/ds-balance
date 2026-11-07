@@ -487,6 +487,10 @@
     }
 
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:[last[@"t"] doubleValue]];
+    NSTimeInterval refreshTime = DSStore.sharedStore.lastRefreshTime;
+    if (refreshTime > 0) {
+        date = [NSDate dateWithTimeIntervalSince1970:refreshTime];
+    }
     static NSDateFormatter *formatter = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -559,6 +563,7 @@
         strongSelf.available = available;
         strongSelf.infos = infos;
         [strongSelf applyInfos];
+        DSStore.sharedStore.lastRefreshTime = NSDate.date.timeIntervalSince1970;
 
         strongSelf.rateLimitAttempt = 0;
         [strongSelf.retryTimer invalidate];

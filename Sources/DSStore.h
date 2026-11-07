@@ -42,6 +42,10 @@ typedef NS_ENUM(NSInteger, DSAppearanceMode) {
 /// A low-balance notification already went out for the current dip.
 @property (nonatomic, assign) BOOL lowBalanceNotified;
 
+/// When the last successful refresh finished, whether or not the balance
+/// changed enough to record a new snapshot.
+@property (nonatomic, assign) NSTimeInterval lastRefreshTime;
+
 /// Newest last. Each entry: t (double), b (double), g (double), p (double), c (string).
 @property (nonatomic, readonly) NSArray<NSDictionary *> *snapshots;
 

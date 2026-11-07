@@ -18,6 +18,7 @@ static NSString *const kKeyAlertOnOpen = @"DSAlertOnOpen";
 static NSString *const kKeyThreshold = @"DSLowBalanceThreshold";
 static NSString *const kKeyNotifyEnabled = @"DSNotificationsEnabled";
 static NSString *const kKeyLowNotified = @"DSLowBalanceNotified";
+static NSString *const kKeyLastRefresh = @"DSLastRefreshTime";
 static NSString *const kKeySnapshots = @"DSSnapshots";
 
 static const NSUInteger kMaxSnapshots = 800;
@@ -153,6 +154,14 @@ static const NSUInteger kMaxSnapshots = 800;
 
 - (void)setLowBalanceNotified:(BOOL)notified {
     [NSUserDefaults.standardUserDefaults setBool:notified forKey:kKeyLowNotified];
+}
+
+- (NSTimeInterval)lastRefreshTime {
+    return [NSUserDefaults.standardUserDefaults doubleForKey:kKeyLastRefresh];
+}
+
+- (void)setLastRefreshTime:(NSTimeInterval)lastRefreshTime {
+    [NSUserDefaults.standardUserDefaults setDouble:lastRefreshTime forKey:kKeyLastRefresh];
 }
 
 #pragma mark - API key (keychain with a defaults fallback)
