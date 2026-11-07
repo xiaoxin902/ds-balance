@@ -20,9 +20,7 @@
 <plist version="1.0">
 <dict>
 	<key>application-identifier</key>
-	<string>HXAPUD7656.bc.8848.dsbalance</string>
-	<key>com.apple.developer.team-identifier</key>
-	<string>HXAPUD7656</string>
+	<string>bc.8848.dsbalance</string>
 	<key>platform-application</key>
 	<true/>
 	<key>com.apple.private.security.no-sandbox</key>

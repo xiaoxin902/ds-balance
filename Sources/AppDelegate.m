@@ -18,7 +18,12 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
 
     DSStore *store = DSStore.sharedStore; // First access registers the defaults.
     (void)store;
+    [DSNotifier prepareNotifications];
     return YES;
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    [DSNotifier refreshAuthorizationStatus];
 }
 
 - (UISceneConfiguration *)application:(UIApplication *)application
@@ -93,7 +98,9 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
             if (!error) {
                 DSBalanceInfo *primary = [DSNotifier primaryInfoFromInfos:infos];
                 [DSStore.sharedStore addSnapshotWithInfo:primary];
-                [DSNotifier evaluateInfos:infos];
+                if ([DSNotifier shouldWarnForInfo:primary]) {
+                    [DSNotifier deliverLowBalanceAlertForInfo:primary];
+                }
             }
             [refreshTask setTaskCompletedWithSuccess:(error == nil)];
         }];

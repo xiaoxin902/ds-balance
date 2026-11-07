@@ -109,7 +109,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         case DSSettingsSectionKey:
             return @"API Key 保存在本机的钥匙串里，只会发送给 api.deepseek.com。";
         case DSSettingsSectionAlerts:
-            return @"余额提醒依赖应用刷新：打开或下拉刷新时检查。系统不给此安装方式的应用通知权限，所以应用不在前台时不会提醒。";
+            return @"平台安装的应用拿不到系统通知，只会在打开或刷新时弹窗；以 IPA 侧载安装后，系统通知可用。";
         case DSSettingsSectionAbout:
             return @"余额来自 DeepSeek 官方 /user/balance 接口。开放平台没有公开的用量明细接口，记录页显示的是本机采样。";
     }
@@ -159,8 +159,16 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
                 cell.accessoryView = toggle;
             } else if (indexPath.row == 3) {
                 cell.textLabel.text = @"系统通知";
-                cell.detailTextLabel.text = @"此安装方式不可用";
-                cell.detailTextLabel.textColor = UIColor.tertiaryLabelColor;
+                if (![DSNotifier isUserAppInstallation]) {
+                    cell.detailTextLabel.text = @"此安装方式不可用";
+                    cell.detailTextLabel.textColor = UIColor.tertiaryLabelColor;
+                } else if ([DSNotifier systemNotificationsAvailable]) {
+                    cell.detailTextLabel.text = @"已允许";
+                    cell.detailTextLabel.textColor = UIColor.systemGreenColor;
+                } else {
+                    cell.detailTextLabel.text = @"未授权";
+                    cell.detailTextLabel.textColor = UIColor.systemRedColor;
+                }
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             } else {
@@ -225,8 +233,16 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 #pragma mark - Actions
 
 - (void)explainSystemNotifications {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"系统通知不可用"
-                                                                   message:@"这个应用安装在 /Applications，系统把它当作平台组件，不给它通知授权，设置里也不会出现它的通知开关。这是安装方式决定的，改代码绕不过去。\n\n作为替代：打开或刷新应用时，余额低于阈值会弹窗提醒。"
+    NSString *message;
+    if (![DSNotifier isUserAppInstallation]) {
+        message = @"这个应用安装在 /Applications，系统把它当作平台组件，不给它通知授权，设置里也不会出现它的通知开关。这是安装方式决定的，改代码绕不过去。\n\n把应用打包成 IPA，用 TrollStore 或侧载工具安装，通知就能用。";
+    } else if ([DSNotifier systemNotificationsAvailable]) {
+        message = @"系统通知已允许，余额偏低时会直接发通知。";
+    } else {
+        message = @"应用以侧载方式运行，但系统通知还没有被允许。请在 设置 › 通知 里找到本应用并允许，然后回到这里点「测试提醒」。";
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"系统通知"
+                                                                   message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -277,6 +293,15 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 }
 
 - (void)sendTestNotification {
+    if ([DSNotifier systemNotificationsAvailable]) {
+        [DSNotifier postTestNotification];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已发送"
+                                                                       message:@"测试通知已经交给系统，如果几秒内没有横幅，检查 设置 › 通知 › DS 余额。"
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
     double threshold = DSStore.sharedStore.lowBalanceThreshold;
     double sample = threshold > 0 ? threshold - 0.01 : 0.0;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"DeepSeek 余额偏低"

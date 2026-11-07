@@ -125,18 +125,19 @@ static const NSUInteger kMaxSnapshots = 800;
 
 - (void)setApiKey:(NSString *)apiKey {
     NSString *trimmed = [apiKey stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    BOOL storedInKeychain = NO;
     if (trimmed.length == 0) {
         [self deleteKeychainValue];
-    } else {
-        storedInKeychain = [self setKeychainValue:trimmed];
-    }
-    // The fallback is consulted only when the keychain refuses the write.
-    if (storedInKeychain || trimmed.length == 0) {
         [NSUserDefaults.standardUserDefaults removeObjectForKey:kFallbackAPIKey];
     } else {
+        // The keychain is the primary copy. A re-signed build gets a new
+        // keychain access group and cannot read the old one, so a second copy
+        // lives outside it; this is a jailbroken device, no stronger promise.
+        if (![self setKeychainValue:trimmed]) {
+            NSLog(@"[DSBalance] keychain refused the API key, keeping the local copy only");
+        }
         [NSUserDefaults.standardUserDefaults setObject:trimmed forKey:kFallbackAPIKey];
     }
+    [NSUserDefaults.standardUserDefaults synchronize];
     [NSNotificationCenter.defaultCenter postNotificationName:DSDataDidChangeNotification object:nil];
 }
 
@@ -179,7 +180,6 @@ static const NSUInteger kMaxSnapshots = 800;
         NSLog(@"[DSBalance] keychain write failed: %d", (int)status);
         return NO;
     }
-    [NSUserDefaults.standardUserDefaults removeObjectForKey:kFallbackAPIKey];
     return YES;
 }
 

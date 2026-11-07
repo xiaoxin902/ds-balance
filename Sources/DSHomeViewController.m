@@ -506,14 +506,14 @@
         DSBalanceInfo *primary = [DSNotifier primaryInfoFromInfos:infos];
 
         DSStore *store = DSStore.sharedStore;
-        BOOL below = store.lowBalanceAlertEnabled && primary.total <= store.lowBalanceThreshold;
-        BOOL shouldWarn = below && !store.lowBalanceNotified && store.alertOnOpen;
-
         [store addSnapshotWithInfo:primary];
-        [DSNotifier evaluateInfos:infos];
 
-        if (shouldWarn) {
-            [strongSelf showLowBalanceWarning:primary];
+        if ([DSNotifier shouldWarnForInfo:primary]) {
+            if ([DSNotifier systemNotificationsAvailable]) {
+                [DSNotifier deliverLowBalanceAlertForInfo:primary];
+            } else if (store.alertOnOpen) {
+                [strongSelf showLowBalanceWarning:primary];
+            }
         }
     }];
 }

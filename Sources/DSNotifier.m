@@ -1,7 +1,37 @@
 #import "DSNotifier.h"
 #import "DSStore.h"
 
+static BOOL DSNotificationsAuthorized = NO;
+
 @implementation DSNotifier
+
++ (BOOL)isUserAppInstallation {
+    NSString *path = NSBundle.mainBundle.bundlePath;
+    return [path containsString:@"/var/containers/Bundle/Application/"];
+}
+
++ (void)prepareNotifications {
+    if (![self isUserAppInstallation]) {
+        // A platform app under /Applications is refused by the system, so
+        // asking would only produce a silent NO.
+        return;
+    }
+    [self requestAuthorizationWithCompletion:^(BOOL granted) {
+        DSNotificationsAuthorized = granted;
+    }];
+}
+
++ (void)refreshAuthorizationStatus {
+    [self authorizationStatus:^(UNAuthorizationStatus status) {
+        DSNotificationsAuthorized = (status == UNAuthorizationStatusAuthorized ||
+                                     status == UNAuthorizationStatusProvisional ||
+                                     status == UNAuthorizationStatusEphemeral);
+    }];
+}
+
++ (BOOL)systemNotificationsAvailable {
+    return DSNotificationsAuthorized;
+}
 
 + (void)requestAuthorizationWithCompletion:(void (^)(BOOL))completion {
     UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
@@ -10,17 +40,21 @@
         if (error) {
             NSLog(@"[DSBalance] notification authorization failed: %@", error);
         }
-        if (completion) {
-            dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            DSNotificationsAuthorized = granted;
+            if (completion) {
                 completion(granted);
-            });
-        }
+            }
+        });
     }];
 }
 
 + (void)authorizationStatus:(void (^)(UNAuthorizationStatus))completion {
     [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            DSNotificationsAuthorized = (settings.authorizationStatus == UNAuthorizationStatusAuthorized ||
+                                         settings.authorizationStatus == UNAuthorizationStatusProvisional ||
+                                         settings.authorizationStatus == UNAuthorizationStatusEphemeral);
             completion(settings.authorizationStatus);
         });
     }];
@@ -39,65 +73,55 @@
     return first;
 }
 
-+ (void)evaluateInfos:(NSArray<DSBalanceInfo *> *)infos {
++ (BOOL)shouldWarnForInfo:(DSBalanceInfo *)info {
     DSStore *store = DSStore.sharedStore;
-    DSBalanceInfo *primary = [self primaryInfoFromInfos:infos];
-    if (!primary) {
-        return;
+    if (!info || !store.lowBalanceAlertEnabled) {
+        return NO;
     }
-
-    if (!store.notificationsEnabled || !store.lowBalanceAlertEnabled) {
-        return;
+    if (info.total > store.lowBalanceThreshold) {
+        store.lowBalanceNotified = NO;
+        return NO;
     }
-
-    double threshold = store.lowBalanceThreshold;
-    if (primary.total > threshold) {
-        if (store.lowBalanceNotified) {
-            store.lowBalanceNotified = NO;
-        }
-        return;
-    }
-
     if (store.lowBalanceNotified) {
-        return;
+        return NO;
     }
     store.lowBalanceNotified = YES;
-    NSLog(@"[DSBalance] low balance alert: total=%.2f threshold=%.2f", primary.total, threshold);
-
-    UNMutableNotificationContent *content = [UNMutableNotificationContent new];
-    content.title = @"DeepSeek 余额偏低";
-    content.body = [NSString stringWithFormat:@"当前余额 %@%@，已低于提醒线 %@%@。",
-                                              primary.currencySymbol, DSMoneyText(primary.total),
-                                              primary.currencySymbol, DSMoneyText(threshold)];
-    content.sound = UNNotificationSound.defaultSound;
-
-    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:@"dsbalance-low"
-                                                                          content:content
-                                                                          trigger:nil];
-    [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request
-                                                         withCompletionHandler:^(NSError *error) {
-        if (error) {
-            NSLog(@"[DSBalance] low balance notification failed: %@", error);
-        }
-    }];
+    return YES;
 }
 
-+ (void)sendTestNotificationWithInfos:(NSArray<DSBalanceInfo *> *)infos {
-    DSBalanceInfo *primary = [self primaryInfoFromInfos:infos];
++ (void)deliverLowBalanceAlertForInfo:(DSBalanceInfo *)info {
+    if (![self systemNotificationsAvailable]) {
+        return;
+    }
+    DSStore *store = DSStore.sharedStore;
+    if (!store.notificationsEnabled) {
+        return;
+    }
+    NSString *body = [NSString stringWithFormat:@"当前余额 %@%@，已低于提醒线 %@%@。",
+                      info.currencySymbol, DSMoneyText(info.total),
+                      info.currencySymbol, DSMoneyText(store.lowBalanceThreshold)];
+    [self postNotificationWithTitle:@"DeepSeek 余额偏低" body:body identifier:@"dsbalance-low"];
+}
+
++ (void)postTestNotification {
+    [self postNotificationWithTitle:@"测试通知"
+                               body:@"通知通道正常，余额偏低时会这样提醒你。"
+                         identifier:@"dsbalance-test"];
+}
+
++ (void)postNotificationWithTitle:(NSString *)title body:(NSString *)body identifier:(NSString *)identifier {
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
-    content.title = @"测试通知";
-    content.body = primary
-        ? [NSString stringWithFormat:@"余额 %@%@，通知通道正常。", primary.currencySymbol, DSMoneyText(primary.total)]
-        : @"通知通道正常。";
+    content.title = title;
+    content.body = body;
     content.sound = UNNotificationSound.defaultSound;
 
-    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:@"dsbalance-test"
-                                                                          content:content
-                                                                          trigger:nil];
+    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier
+                                                                         content:content
+                                                                         trigger:nil];
     [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request
                                                          withCompletionHandler:^(NSError *error) {
         if (error) {
-            NSLog(@"[DSBalance] test notification failed: %@", error);
+            NSLog(@"[DSBalance] notification failed: %@", error);
         }
     }];
 }
