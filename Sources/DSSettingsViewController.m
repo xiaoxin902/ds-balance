@@ -1,8 +1,10 @@
 #import "DSSettingsViewController.h"
 #import "DSAppearance.h"
 #import "DSBalanceInfo.h"
+#import "DSKeyEditorViewController.h"
 #import "DSNotifier.h"
 #import "DSStore.h"
+#import <UserNotifications/UserNotifications.h>
 
 typedef NS_ENUM(NSInteger, DSSettingsSection) {
     DSSettingsSectionKey = 0,
@@ -16,6 +18,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 @interface DSSettingsViewController () <UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, assign) UNAuthorizationStatus notifyStatus;
 
 @end
 
@@ -43,6 +46,10 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self.tableView reloadData];
+    [DSNotifier authorizationStatus:^(UNAuthorizationStatus status) {
+        self.notifyStatus = status;
+        [self.tableView reloadData];
+    }];
 }
 
 #pragma mark - Helpers
@@ -75,7 +82,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         case DSSettingsSectionKey:
             return 1;
         case DSSettingsSectionAlerts:
-            return 4;
+            return 5;
         case DSSettingsSectionAppearance:
             return 2;
         case DSSettingsSectionData:
@@ -145,13 +152,33 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
                 [toggle addTarget:self action:@selector(notifySwitchChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = toggle;
             } else if (indexPath.row == 1) {
+                cell.textLabel.text = @"通知权限";
+                cell.detailTextLabel.text = [self notificationStatusText];
+                switch (self.notifyStatus) {
+                    case UNAuthorizationStatusAuthorized:
+                    case UNAuthorizationStatusProvisional:
+                    case UNAuthorizationStatusEphemeral:
+                        cell.detailTextLabel.textColor = UIColor.systemGreenColor;
+                        break;
+                    case UNAuthorizationStatusDenied:
+                        cell.detailTextLabel.textColor = UIColor.systemRedColor;
+                        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+                        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                        break;
+                    default:
+                        cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+                        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+                        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                        break;
+                }
+            } else if (indexPath.row == 2) {
                 cell.textLabel.text = @"低余额提醒";
                 UISwitch *toggle = [UISwitch new];
                 toggle.on = store.lowBalanceAlertEnabled;
                 toggle.enabled = store.notificationsEnabled;
                 [toggle addTarget:self action:@selector(lowAlertSwitchChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = toggle;
-            } else if (indexPath.row == 2) {
+            } else if (indexPath.row == 3) {
                 cell.textLabel.text = @"提醒阈值";
                 cell.detailTextLabel.text = [NSString stringWithFormat:@"¥%@", DSMoneyText(store.lowBalanceThreshold)];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -201,11 +228,13 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
     if (indexPath.section == DSSettingsSectionKey) {
-        [self presentKeyEditor];
+        [self.navigationController pushViewController:[DSKeyEditorViewController new] animated:YES];
     } else if (indexPath.section == DSSettingsSectionAlerts) {
-        if (indexPath.row == 2) {
-            [self presentThresholdEditor];
+        if (indexPath.row == 1) {
+            [self handleNotificationPermissionRow];
         } else if (indexPath.row == 3) {
+            [self presentThresholdEditor];
+        } else if (indexPath.row == 4) {
             [self sendTestNotification];
         }
     } else if (indexPath.section == DSSettingsSectionData) {
@@ -215,34 +244,73 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 
 #pragma mark - Actions
 
-- (void)presentKeyEditor {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"DeepSeek API Key"
-                                                                   message:@"在 platform.deepseek.com 的 API keys 页面创建，形如 sk-…。"
+- (NSString *)notificationStatusText {
+    switch (self.notifyStatus) {
+        case UNAuthorizationStatusNotDetermined:
+            return @"未请求";
+        case UNAuthorizationStatusDenied:
+            return @"已拒绝";
+        case UNAuthorizationStatusAuthorized:
+            return @"已允许";
+        case UNAuthorizationStatusProvisional:
+            return @"临时允许";
+        case UNAuthorizationStatusEphemeral:
+            return @"临时允许";
+    }
+    return @"未知";
+}
+
+/// Asks once; when the system already refused, it explains instead of asking again.
+- (void)requestNotificationPermissionAndThen:(void (^)(BOOL granted))completion {
+    [DSNotifier authorizationStatus:^(UNAuthorizationStatus status) {
+        self.notifyStatus = status;
+        if (status == UNAuthorizationStatusDenied) {
+            [self.tableView reloadData];
+            [self showNotificationDeniedAlert];
+            if (completion) {
+                completion(NO);
+            }
+            return;
+        }
+        if (status == UNAuthorizationStatusAuthorized ||
+            status == UNAuthorizationStatusProvisional ||
+            status == UNAuthorizationStatusEphemeral) {
+            [self.tableView reloadData];
+            if (completion) {
+                completion(YES);
+            }
+            return;
+        }
+        [DSNotifier requestAuthorizationWithCompletion:^(BOOL granted) {
+            [DSNotifier authorizationStatus:^(UNAuthorizationStatus updated) {
+                self.notifyStatus = updated;
+                [self.tableView reloadData];
+            }];
+            if (!granted) {
+                [self showNotificationDeniedAlert];
+            }
+            if (completion) {
+                completion(granted);
+            }
+        }];
+    }];
+}
+
+- (void)showNotificationDeniedAlert {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"通知未获允许"
+                                                                   message:@"系统没有允许本应用发通知。请打开 设置 › 通知 › DS 余额，手动开启通知。"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"sk-…";
-        textField.secureTextEntry = YES;
-        textField.autocorrectionType = UITextAutocorrectionTypeNo;
-        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
-        if (DSStore.sharedStore.apiKey.length == 0) {
-            textField.text = @"";
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)handleNotificationPermissionRow {
+    [self requestNotificationPermissionAndThen:^(BOOL granted) {
+        if (granted) {
+            DSStore.sharedStore.notificationsEnabled = YES;
+            [self.tableView reloadData];
         }
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        NSString *text = alert.textFields.firstObject.text ?: @"";
-        DSStore.sharedStore.apiKey = text;
-        [self.tableView reloadData];
-        [NSNotificationCenter.defaultCenter postNotificationName:DSRefreshRequestedNotification object:nil];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        (void)action;
-        DSStore.sharedStore.apiKey = @"";
-        [self.tableView reloadData];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)presentThresholdEditor {
@@ -272,16 +340,9 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         [self.tableView reloadData];
         return;
     }
-    [DSNotifier requestAuthorizationWithCompletion:^(BOOL granted) {
+    [self requestNotificationPermissionAndThen:^(BOOL granted) {
         DSStore.sharedStore.notificationsEnabled = granted;
         [self.tableView reloadData];
-        if (!granted) {
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"通知未获允许"
-                                                                           message:@"请到 设置 › 通知 › DS 余额 中允许通知。"
-                                                                    preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-            [self presentViewController:alert animated:YES completion:nil];
-        }
     }];
 }
 
@@ -302,17 +363,13 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
 }
 
 - (void)sendTestNotification {
-    [DSNotifier authorizationStatus:^(UNAuthorizationStatus status) {
-        if (status != UNAuthorizationStatusAuthorized && status != UNAuthorizationStatusProvisional) {
-            [DSNotifier requestAuthorizationWithCompletion:^(BOOL granted) {
-                if (granted) {
-                    DSStore.sharedStore.notificationsEnabled = YES;
-                    [DSNotifier sendTestNotificationWithInfos:nil];
-                }
-            }];
+    [self requestNotificationPermissionAndThen:^(BOOL granted) {
+        if (!granted) {
             return;
         }
+        DSStore.sharedStore.notificationsEnabled = YES;
         [DSNotifier sendTestNotificationWithInfos:nil];
+        [self.tableView reloadData];
     }];
 }
 

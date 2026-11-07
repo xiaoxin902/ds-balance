@@ -14,6 +14,7 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     [self registerBackgroundRefresh];
+    UNUserNotificationCenter.currentNotificationCenter.delegate = self;
 
     DSStore *store = DSStore.sharedStore; // First access registers the defaults.
     NSLog(@"[DSBalance] launched, hasKey=%d notifications=%d appearance=%ld",
@@ -33,6 +34,18 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
     [self scheduleBackgroundRefresh];
+}
+
+#pragma mark - UNUserNotificationCenterDelegate
+
+/// Without this the system swallows an alert while the app is in front, which
+/// looked exactly like "the test notification never arrived".
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
+    completionHandler(UNNotificationPresentationOptionBanner |
+                      UNNotificationPresentationOptionList |
+                      UNNotificationPresentationOptionSound);
 }
 
 #pragma mark - Background refresh
