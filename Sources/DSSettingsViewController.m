@@ -116,7 +116,7 @@ typedef NS_ENUM(NSInteger, DSSettingsSection) {
         case DSSettingsSectionAlerts:
             return @"平台安装的应用拿不到系统通知，只会在打开或刷新时弹窗；以 IPA 侧载安装后，系统通知可用。";
         case DSSettingsSectionRefresh:
-            return @"前台按间隔自动刷新；后台检查由系统调度，不保证在设定的时刻运行。";
+            return @"刷新余额只是查询，不消耗 token，也不会扣费。\n\n若因频繁调用收到 HTTP 429：DeepSeek 官方文档未提供 Retry-After 头，建议指数退避——从几秒开始成倍增加等待时间，不要连续重试。";
         case DSSettingsSectionAbout:
             return @"余额来自 DeepSeek 官方 /user/balance 接口。开放平台没有公开的用量明细接口，记录页显示的是本机采样。";
     }

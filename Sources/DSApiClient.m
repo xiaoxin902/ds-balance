@@ -81,7 +81,7 @@ static NSError *DSMakeError(DSApiErrorCode code, NSString *message) {
             return;
         }
         if (status == 429) {
-            finish(NO, @[], DSMakeError(DSApiErrorCodeServer, @"请求过于频繁，请稍后再试"));
+            finish(NO, @[], DSMakeError(DSApiErrorCodeRateLimited, @"请求过于频繁（HTTP 429），请稍后再试"));
             return;
         }
         if (status < 200 || status >= 300) {

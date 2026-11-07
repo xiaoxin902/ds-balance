@@ -51,6 +51,7 @@
 
 @property (nonatomic, assign) BOOL loading;
 @property (nonatomic, assign) BOOL didAutoRefresh;
+@property (nonatomic, assign) NSTimeInterval lastRateLimitAlert;
 @property (nonatomic, strong) NSTimer *autoRefreshTimer;
 @property (nonatomic, copy) NSArray<DSBalanceInfo *> *infos;
 @property (nonatomic, assign) BOOL available;
@@ -249,7 +250,7 @@
 - (void)buildUpdatedLabel {
     self.updatedLabel = [UILabel new];
     self.updatedLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-    self.updatedLabel.textColor = UIColor.tertiaryLabelColor;
+    self.updatedLabel.textColor = UIColor.secondaryLabelColor;
     self.updatedLabel.textAlignment = NSTextAlignmentCenter;
     self.updatedLabel.numberOfLines = 0;
     self.updatedLabel.text = @"尚未刷新";
@@ -430,7 +431,7 @@
     self.warningBox.backgroundColor = DSAppearance.warningBackgroundColor;
     self.warningLabel.textColor = DSAppearance.warningTextColor;
     self.emptyActionButton.backgroundColor = DSAppearance.brandColor;
-    self.updatedLabel.textColor = UIColor.tertiaryLabelColor;
+    self.updatedLabel.textColor = UIColor.secondaryLabelColor;
     [self applyInfos];
 }
 
@@ -474,7 +475,7 @@
         self.updatedLabel.text = text;
         return;
     }
-    self.updatedLabel.textColor = UIColor.tertiaryLabelColor;
+    self.updatedLabel.textColor = UIColor.secondaryLabelColor;
 
     NSArray<NSDictionary *> *snapshots = DSStore.sharedStore.snapshots;
     NSDictionary *last = snapshots.lastObject;
@@ -493,13 +494,6 @@
     });
 
     NSString *text2 = [NSString stringWithFormat:@"更新于 %@", [formatter stringFromDate:date]];
-    if (snapshots.count >= 2) {
-        NSDictionary *previous = snapshots[snapshots.count - 2];
-        double delta = [last[@"b"] doubleValue] - [previous[@"b"] doubleValue];
-        if (fabs(delta) >= 0.005) {
-            text2 = [NSString stringWithFormat:@"%@ · 较上次 %@", text2, DSDeltaText(delta)];
-        }
-    }
     self.updatedLabel.text = text2;
 }
 
@@ -550,7 +544,11 @@
 
         if (error) {
             [strongSelf updateUpdatedLabelWithText:[NSString stringWithFormat:@"刷新失败：%@", error.localizedDescription]];
-            if (userInteraction && strongSelf.infos.count == 0) {
+            BOOL rateLimited = [error.domain isEqualToString:DSApiErrorDomain] &&
+                               error.code == DSApiErrorCodeRateLimited;
+            if (rateLimited) {
+                [strongSelf presentRateLimitAlertIfNeeded];
+            } else if (userInteraction && strongSelf.infos.count == 0) {
                 [strongSelf presentError:error];
             }
             return;
@@ -593,6 +591,22 @@
         }
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)presentRateLimitAlertIfNeeded {
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    if (now - self.lastRateLimitAlert < 300) {
+        return;
+    }
+    self.lastRateLimitAlert = now;
+    if (self.presentedViewController != nil) {
+        return;
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请求过于频繁"
+                                                                   message:@"DeepSeek 返回 HTTP 429，说明刷新太快被限流了。余额没有受影响。请稍等再试，或把自动刷新间隔调长。"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 

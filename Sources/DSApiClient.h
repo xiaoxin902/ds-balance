@@ -11,6 +11,7 @@ typedef NS_ENUM(NSInteger, DSApiErrorCode) {
     DSApiErrorCodeNetwork = 3,
     DSApiErrorCodeBadPayload = 4,
     DSApiErrorCodeServer = 5,
+    DSApiErrorCodeRateLimited = 6,
 };
 
 typedef void (^DSBalanceHandler)(BOOL available, NSArray<DSBalanceInfo *> *infos, NSError *error);
