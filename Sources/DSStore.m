@@ -10,6 +10,7 @@ static NSString *const kFallbackAPIKey = @"DSFallbackAPIKey";
 static NSString *const kKeyAppearance = @"DSAppearanceMode";
 static NSString *const kKeyRefreshOnLaunch = @"DSRefreshOnLaunch";
 static NSString *const kKeyLowAlert = @"DSLowBalanceAlertEnabled";
+static NSString *const kKeyAlertOnOpen = @"DSAlertOnOpen";
 static NSString *const kKeyThreshold = @"DSLowBalanceThreshold";
 static NSString *const kKeyNotifyEnabled = @"DSNotificationsEnabled";
 static NSString *const kKeyLowNotified = @"DSLowBalanceNotified";
@@ -35,6 +36,7 @@ static const NSUInteger kMaxSnapshots = 800;
             kKeyAppearance: @(DSAppearanceModeSystem),
             kKeyRefreshOnLaunch: @YES,
             kKeyLowAlert: @YES,
+            kKeyAlertOnOpen: @YES,
             kKeyThreshold: @10.0,
             kKeyNotifyEnabled: @YES,
             kKeyLowNotified: @NO,
@@ -93,6 +95,14 @@ static const NSUInteger kMaxSnapshots = 800;
 
 - (void)setNotificationsEnabled:(BOOL)enabled {
     [NSUserDefaults.standardUserDefaults setBool:enabled forKey:kKeyNotifyEnabled];
+}
+
+- (BOOL)alertOnOpen {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kKeyAlertOnOpen];
+}
+
+- (void)setAlertOnOpen:(BOOL)alertOnOpen {
+    [NSUserDefaults.standardUserDefaults setBool:alertOnOpen forKey:kKeyAlertOnOpen];
 }
 
 - (BOOL)lowBalanceNotified {

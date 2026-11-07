@@ -28,6 +28,8 @@ typedef NS_ENUM(NSInteger, DSAppearanceMode) {
 @property (nonatomic, assign) BOOL lowBalanceAlertEnabled;
 @property (nonatomic, assign) double lowBalanceThreshold;
 @property (nonatomic, assign) BOOL notificationsEnabled;
+/// Show the low-balance alert inside the app when it refreshes.
+@property (nonatomic, assign) BOOL alertOnOpen;
 /// A low-balance notification already went out for the current dip.
 @property (nonatomic, assign) BOOL lowBalanceNotified;
 

@@ -23,16 +23,6 @@
 
     self.viewControllers = @[ home, history, settings ];
     self.selectedIndex = 0;
-    NSLog(@"[DSBalance] tab bar ready, count=%lu selected=%lu visible=%@",
-          (unsigned long)self.viewControllers.count, (unsigned long)self.selectedIndex,
-          NSStringFromClass(self.selectedViewController.class));
-    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    [defaults setObject:[NSString stringWithFormat:@"count=%lu selected=%lu visible=%@",
-                         (unsigned long)self.viewControllers.count,
-                         (unsigned long)self.selectedIndex,
-                         NSStringFromClass(self.selectedViewController.class)]
-                 forKey:@"DSDiagTabs"];
-    [defaults synchronize];
 }
 
 - (UIViewController *)navigationControllerWithRoot:(UIViewController *)root

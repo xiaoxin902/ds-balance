@@ -504,10 +504,39 @@
         [strongSelf applyInfos];
 
         DSBalanceInfo *primary = [DSNotifier primaryInfoFromInfos:infos];
-        NSLog(@"[DSBalance] refresh ok, primary=%@ available=%d", primary, available);
-        [DSStore.sharedStore addSnapshotWithInfo:primary];
+
+        DSStore *store = DSStore.sharedStore;
+        BOOL below = store.lowBalanceAlertEnabled && primary.total <= store.lowBalanceThreshold;
+        BOOL shouldWarn = below && !store.lowBalanceNotified && store.alertOnOpen;
+
+        [store addSnapshotWithInfo:primary];
         [DSNotifier evaluateInfos:infos];
+
+        if (shouldWarn) {
+            [strongSelf showLowBalanceWarning:primary];
+        }
     }];
+}
+
+- (void)showLowBalanceWarning:(DSBalanceInfo *)info {
+    if (self.presentedViewController != nil) {
+        return;
+    }
+    NSString *message = [NSString stringWithFormat:@"当前余额 %@%@，已低于你设置的提醒线 %@%@。",
+                         info.currencySymbol, DSMoneyText(info.total),
+                         info.currencySymbol, DSMoneyText(DSStore.sharedStore.lowBalanceThreshold)];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"DeepSeek 余额偏低"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"去充值" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        NSURL *url = [NSURL URLWithString:@"https://platform.deepseek.com/top_up"];
+        if (url) {
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)presentError:(NSError *)error {

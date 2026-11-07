@@ -17,12 +17,7 @@ static NSString *const kRefreshTaskIdentifier = @"bc.8848.dsbalance.refresh";
     UNUserNotificationCenter.currentNotificationCenter.delegate = self;
 
     DSStore *store = DSStore.sharedStore; // First access registers the defaults.
-    NSLog(@"[DSBalance] launched, hasKey=%d notifications=%d appearance=%ld",
-          store.apiKey.length > 0, store.notificationsEnabled, (long)store.appearanceMode);
-    if (store.apiKey.length > 0 && store.notificationsEnabled) {
-        // Already answered before: this returns at once without a prompt.
-        [DSNotifier requestAuthorizationWithCompletion:nil];
-    }
+    (void)store;
     return YES;
 }
 
