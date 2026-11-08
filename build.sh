@@ -55,7 +55,10 @@ else
 fi
 
 cp "$ROOT/Resources/Info.plist" "$APP/Info.plist"
-cp "$ROOT"/Resources/AppIcon*.png "$APP/"
+cp "$ROOT/Resources/AppIcon60x60@2x.png" "$APP/"
+cp "$ROOT/Resources/AppIcon60x60@3x.png" "$APP/"
+cp "$ROOT/Resources/AppIcon76x76@2x.png" "$APP/"
+cp "$ROOT/Resources/AppIcon83.5x83.5@2x.png" "$APP/"
 
 if command -v codesign >/dev/null 2>&1; then
     codesign --force --sign - --entitlements "$ROOT/Packaging/App.entitlements" "$APP"
@@ -71,7 +74,7 @@ rm -f "$BUILD/DSBalance.ipa" "$BUILD/DSBalance.tipa"
 (cd "$BUILD" && zip -qry DSBalance.ipa Payload)
 
 # TrollStore looks for this marker inside the bundle.
-touch "$APP/_TrollStore"
+touch "$BUILD/Payload/Ds.app/_TrollStore"
 (cd "$BUILD" && zip -qry DSBalance.tipa Payload)
 
 echo "Built:"

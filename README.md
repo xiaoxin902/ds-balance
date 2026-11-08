@@ -30,8 +30,10 @@
 ### 命令行（不依赖 Apelin）
 
 ```sh
-SDKROOT=/path/to/iPhoneOS17.2.sdk ./build.sh
+SDKROOT=/path/to/iPhoneOS17.2.sdk sh build.sh
 ```
+
+在 iOS 设备本身上构建时也用它——越狱环境通常没有 `/bin/sh`，直接 `./build.sh` 会报找不到文件。
 
 需要 `clang`（Xcode Command Line Tools）与一份 iPhoneOS SDK；`zip` 用于打包；签名可选——macOS 上是 `codesign`，其他系统是 `ldid`，两者都没有时产出的包只有 TrollStore 能装。
 
