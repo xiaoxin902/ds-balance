@@ -27,15 +27,35 @@
 
 ## 构建
 
-这是一个 [Apelin](https://github.com/owngoal-dev/Apelin) 项目，构建描述在 `apelin-project.json`：产品、源文件、框架、资源、包信息与构建步骤都写在那里。
+### 命令行（不依赖 Apelin）
 
-需要：
+```sh
+SDKROOT=/path/to/iPhoneOS17.2.sdk ./build.sh
+```
 
-- iOS 工具链（Command Line Tools 16.4 或更新）
-- iPhoneOS SDK 17.2 或兼容版本
-- 部署目标 iOS 16.0
+需要 `clang`（Xcode Command Line Tools）与一份 iPhoneOS SDK；`zip` 用于打包；签名可选——macOS 上是 `codesign`，其他系统是 `ldid`，两者都没有时产出的包只有 TrollStore 能装。
 
-产物是 `.deb`（越狱安装）。若要以侧载方式分发，把构建出的 `Ds.app` 放进 `Payload/` 压成 zip，改名为 `.ipa`；TrollStore 使用同名内容并加入空的 `_TrollStore` 标记文件。
+产物：
+
+- `build/DSBalance.ipa`
+- `build/DSBalance.tipa`
+
+只编译单一架构可设 `ARCHS=arm64`。
+
+### 用 Apelin
+
+`apelin-project.json` 是 Apelin 的构建描述：产品、源文件、框架、资源、包信息与构建步骤都在里面。在 Apelin 中打开本目录构建即可，产物是 `.deb`，适合越狱安装。
+
+部署目标 iOS 16.0。
+
+## 预编译安装包
+
+`release/` 下是本版本的侧载包：
+
+- `DSBalance.ipa` —— AltStore、Sideloadly 等工具安装，安装时会用你的证书重签
+- `DSBalance.tipa` —— TrollStore 直接安装
+
+两者内容相同，区别只在 `.tipa` 里多一个空的 `_TrollStore` 标记文件。安装后是用户应用，系统通知可用；用 AppSyncUnified 之类的插件装进 `/Applications` 则拿不到通知权限。
 
 ## 目录结构
 
@@ -44,7 +64,9 @@ Sources/            Objective-C 源码
 Resources/          Info.plist 与图标
 Packaging/          App.entitlements
 docs/screenshots/   README 截图
-apelin-project.json 构建描述
+release/            预编译的 IPA / TIPA
+build.sh            命令行构建脚本
+apelin-project.json Apelin 构建描述
 ```
 
 ## 许可

@@ -6,6 +6,8 @@
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
 	<string>DS 余额</string>
+	<key>CFBundleExecutable</key>
+	<string>Ds</string>
 	<key>CFBundleIdentifier</key>
 	<string>bc.8848.dsbalance</string>
 	<key>CFBundleInfoDictionaryVersion</key>
